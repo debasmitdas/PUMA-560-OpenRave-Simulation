@@ -1,0 +1,17 @@
+﻿
+To run the program the following steps should be followed (Ubuntu OS should be used) :
+
+1)  Open the terminal
+
+2) Type export PYTHONPATH=$PYTHONPATH:`openrave-config –python-dir` in the terminal.
+      This changes the path to the openrave directory so that openrave functions can be easily called.
+
+3)   Now change the directory to where the program file Program.py is stored. (using cd)
+
+4)   Now type in the terminal – python Program.py
+
+5)   The Program will ask a path for the DH.txt  and the XML File(DH.txt is included in the attachment)
+
+6)   Press enter and the Program will run.  In the OpenRave GUI Go to View->Show World Axes. To show the direction of axes of base. The Terminal would be asking for some parameters (like radius of circle, slope of line etc). Enter them and watch the PUMA arm follow the circle and the line respectively . (Ignore the yellow commands – They occur because I have normalised all the joint angles to the range -pi to +pi)
+
+7)   Press Ctrl + C if the program need to be stopped in the middle. 

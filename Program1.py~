@@ -1,0 +1,329 @@
+# Program of ECE 569 Project A 
+# Authors :- Debasmit Das, Tongyang Liu
+# Input :- DH Parameters and Joint Ranges and XML File
+# Output :- Link Transformation Matrices, OpenRave Visualization, Inverse Kinematic Solutions, Error, Indicators
+
+from openravepy import * # This is imported for OpenRave Methods/Functions
+import time # This is imported for invoking delay in the Program
+import numpy as np # This is Matrix and Array Operations
+from numpy import *
+from sympy import * # This is imported for symbolic variables
+from sympy import Matrix 
+
+p=raw_input("Enter Path for DH File")
+DH=numpy.genfromtxt(p) # Matrix of D-H Parameters and ranges read from a file
+th=DH[:,0] # Separating the Joint Angles
+thr=th*(np.pi/180) # Converting to Radians 
+al=DH[:,1] # Separating the Link Twist
+alr=al*(np.pi/180) # Converting to Radians 
+a=DH[:,2] # Separating the Link Length
+d=DH[:,3] # Separating the Joint Offset
+r1=DH[:,4]*(np.pi/180) # Converting lower limit of range to radians
+r2=DH[:,5]*(np.pi/180) # Converting upper limit of range to radians
+       
+# Here each joint angle which are the variables are stored 
+q=[]
+for i in range(1,7):
+  q.append(Symbol('q'+repr(i))) # A Matrix of Symbolic Joint Variables is created
+       
+# Now Each Link Transformation Matrix is stored as an element of a List       
+
+A=[[0.0],[0.0],[0.0],[0.0],[0.0],[0.0]];#Create a list of zero matrix This list will later fill up with symbolic matrices
+P=numpy.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]);#Create another blank Matrix
+
+# The Link transformation matrix is computed and output
+print "Link Transformation Matrices "
+for i in range(0,6):
+  A[i]=Matrix([[cos(q[i]),-cos(alr[i])*sin(q[i]),sin(alr[i])*sin(q[i]),a[i]*cos(q[i])],[sin(q[i]),cos(alr[i])*cos(q[i]),-sin(alr[i])*cos(q[i]),a[i]*sin(q[i])],[0,sin(alr[i]),cos(alr[i]),d[i]],[0,0,0,1]])
+  print A[i] 
+  print "\n" 
+# Now Opening the OpenRave GUI       
+time.sleep(2) # Providing a delay of 2 seconds
+#Loading the OpenRave ENvironment
+p=raw_input('Enter Path for XML File')
+env=Environment();
+time.sleep(1);
+env.SetViewer('qtcoin');
+time.sleep(1)
+env.Load(p); # Load the simple robot scene of PUMA 560
+time.sleep(1)
+robot = env.GetRobots()[0] # Get the first robot
+       
+# Proceeding to the next part of the program where you have to check the forward kinematics checking and Simulation      
+# So i have to loop over all joint angle data points and find the forward kinematics and inverse kinematics 
+As=[[0.0],[0.0],[0.0],[0.0],[0.0],[0.0]]# This list will later fill up with transformation matrices
+Q=np.array([0.0,0.0,0.0,0.0,0.0,0.0]);
+T=0; # Initialization of the Arm Matrix
+Q[0]=r1[0]
+while Q[0]<=r2[0]:
+  Q[1]=r1[1]
+  while Q[1]<=r2[1]:
+    Q[2]=r1[2]
+    while Q[2]<=r2[2]:
+      Q[3]=r1[3]
+      while Q[3]<=r2[3]:
+        Q[4]=r1[4]
+        while Q[4]<=r2[4]:
+          Q[5]=r1[5]
+          while Q[5]<=r2[5]:
+            T=1;
+            Qc=np.array([0.0,0.0,0.0,0.0,0.0,0.0]) # Initialization of solutions for Circle Substitution Method
+            Qh=np.array([0.0,0.0,0.0,0.0,0.0,0.0]) # Initialization of solutions for Half Angle Method 
+            Qg=np.array([0.0,0.0,0.0,0.0,0.0,0.0]) # Initialization of solutions for Geometric Method
+            print "For Configuration (Range : -pi to +pi):"           
+            Qr=np.array([0.0,0.0,0.0,0.0,0.0,0.0]); # Array of Joint solutions for radians
+            for i in range(0,6):
+              Qr[i]=atan2(sin(Q[i]),cos(Q[i]));
+            print [Qr[0],Qr[1],Qr[2],Qr[3],Qr[4],Qr[5]]            
+            env.GetViewer().SetTitle('Forward Kinematics Configuration')           
+            ARM = np.sign((-d[3]*sin(Q[1]+Q[2])-a[2]*cos(Q[1]+Q[2]) - a[1]*cos(Q[1])))
+            ELB = ARM*np.sign(d[3]*cos(Q[2]) - a[2]*sin(Q[2]))
+            ARM2 = np.sign(cos(Qc[1])*(d[3]*cos(Qc[2]) - a[2]*sin(Qc[2])) - sin(Qc[1])*(d[3]*sin(Qc[2]) + a[2]*cos(Qc[2]) +a[1]))           
+            # Loop for converting symbolic HTM to numerical HTM
+            for i in range(0,6):
+              As[i]=np.array(A[i].subs(q[i],Q[i]));
+            # Now As[] contains a list of all the HTM at a particular data point.
+            # Loop to find Arm Matrix. Essentially the product of Matrix would be carried out
+            for i in range(0,6):
+              T=np.dot(T,As[i]);
+            print "Arm Transformation Matrix = "+repr(T)
+            # Now to find the WRI configuration
+            T4=1;
+            for i in range(0,4):
+              T4=np.dot(T4,As[i]);
+            if np.dot(T[:,1],T4[:,2]) != 0:
+              WRI=np.sign(np.dot(T[:,1],T4[:,2]))
+            else:
+              WRI=np.sign(np.dot(T[:,0],T4[:,2]))
+            print "ARM = "+repr(ARM) ; print "ELBOW = "+repr(ELB) ; print "WRIST = "+repr(WRI);  
+            ####### Open Rave Code for assigning Axes : -
+            from openravepy import misc
+            robot.SetDOFValues([Qr[0],Qr[1],Qr[2],Qr[3],Qr[4],Qr[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            ##### 1 Circle Substitution solutions :
+            px=T[0,3]; # X co-ordinate of the tool
+            py=T[1,3]; # Y co-ordinate of the tool
+            d2=d[1];
+            r = (px**2 + py**2)**0.5;
+            Qc[0]=atan2(py,px) - atan2(d2,-ARM*((r**2 - d2**2)**0.5));
+            pz=T[2,3];
+            # Now creating some intermediate variables
+            dc=(cos(Qc[0])*px + sin(Qc[0])*py)**2 + pz**2 - d[3]**2 - a[2]**2 - a[1]**2 ;
+            ec=2*((a[1]*a[2])**2 + (a[1]*d[3])**2)**0.5
+            fc=cos(Qc[0])*px + sin(Qc[0])*py
+            Qc[2]=atan2(dc, ARM*ELB*((ec**2 - dc**2)**0.5)) - atan2(a[2],d[3])
+            hc2=(d[3]**2 + a[1]**2 + a[2]**2 + 2*a[1]*d[3]*sin(Qc[2]) + 2*a[1]*a[2]*cos(Qc[2]))
+            Qc[1]=atan2(fc,ARM2*(hc2 - fc**2)**0.5) - atan2(d[3]*sin(Qc[2]) + a[2]*cos(Qc[2]) + a[1], d[3]*cos(Qc[2]) - a[2]*sin(Qc[2])) ##### ARM2
+            # Now initializing the variables from the arm matrix
+            nx=T[0,0]; ny=T[1,0] ; nz=T[2,0] ; sx=T[0,1] ; sy=T[1,1] ; sz=T[2,1] ; ax=T[0,2] ; ay=T[1,2] ; az=T[2,2];
+            Qc[3] = atan2(WRI*(cos(Qc[0])*ay - sin(Qc[0])*ax) , WRI*(cos(Qc[0])*cos(Qc[1]+Qc[2])*ax + sin(Qc[0])*cos(Qc[1]+Qc[2])*ay - sin(Qc[1]+Qc[2])*az))
+            Qc[4] = atan2((cos(Qc[0])*cos(Qc[1]+Qc[2])*cos(Qc[3]) - sin(Qc[0])*sin(Qc[3]))*ax + (sin(Qc[0])*cos(Qc[1]+Qc[2])*cos(Qc[3]) + cos(Qc[0])*sin(Qc[3]))*ay - cos(Qc[3])*sin(Qc[1]+Qc[2])*az , cos(Qc[0])*sin(Qc[1]+Qc[2])*ax + sin(Qc[0])*sin(Qc[1]+Qc[2])*ay + cos(Qc[1]+Qc[2])*az)
+            Qc[5] = atan2((-sin(Qc[0])*cos(Qc[3]) - cos(Qc[0])*cos(Qc[1]+Qc[2])*sin(Qc[3]))*nx + (cos(Qc[0])*cos(Qc[3]) - sin(Qc[0])*cos(Qc[1]+Qc[2])*sin(Qc[3]))*ny + sin(Qc[1]+Qc[2])*sin(Qc[3])*nz, (-sin(Qc[0])*cos(Qc[3]) - cos(Qc[0])*cos(Qc[1]+Qc[2])*sin(Qc[3]))*sx + (cos(Qc[0])*cos(Qc[3]) - sin(Qc[0])*cos(Qc[1]+Qc[2])*sin(Qc[3]))*sy + sin(Qc[1]+Qc[2])*sin(Qc[3])*sz)
+            time.sleep(1);
+            for i in range(0,6):
+              Qc[i]=atan2(sin(Qc[i]),cos(Qc[i]));
+            print "Now Showing Circle Substitution Solution: (Range : -pi to +pi)"
+            print [Qc[0],Qc[1],Qc[2],Qc[3],Qc[4],Qc[5]]
+            E=Qc-Qr;
+            print "Error = "+repr((sum(E*E))**0.5)
+            env.GetViewer().SetTitle('Inverse Kinematics Configuration : Circle Substitution Solution (FLIP 1)')
+            from openravepy import misc
+            robot.SetDOFValues([Qc[0],Qc[1],Qc[2],Qc[3],Qc[4],Qc[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            time.sleep(1); 
+            Qc[3]=atan2(sin(Qc[3]+np.pi),cos(Qc[3]+np.pi));
+            Qc[4]=atan2(sin(-Qc[4]),cos(-Qc[4]))
+            Qc[5]=atan2(sin(Qc[5]+np.pi),cos(Qc[5]+np.pi));
+            print [Qc[0],Qc[1],Qc[2],Qc[3],Qc[4],Qc[5]]
+            E=Qc-Qr;
+            print "Error = "+repr((sum(E*E))**0.5)
+            env.GetViewer().SetTitle('Inverse Kinematics Configuration : Circle Substitution Solution (FLIP 2)')
+            from openravepy import misc
+            robot.SetDOFValues([Qc[0],Qc[1],Qc[2],Qc[3],Qc[4],Qc[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            time.sleep(1)
+            #### Half Angle solution:
+            Qh[0]=2*atan2(-px-ARM*(px**2 + py**2 - d[1]**2)**0.5,d[1] + py)
+            dh=(cos(Qh[0])*px + sin(Qh[0])*py)**2 + pz**2 - d[3]**2 - a[2]**2 - a[1]**2 ;
+            eh=2*((a[1]*a[2])**2 + (a[1]*d[3])**2)**0.5
+            fh=cos(Qh[0])*px + sin(Qh[0])*py
+            Qh[2]=2*atan2(2*a[1]*d[3] - ARM*ELB*(eh**2 - dh**2)**0.5 , dh + 2*a[1]*a[2])
+            hh2=(d[3]**2 + a[1]**2 + a[2]**2 + 2*a[1]*d[3]*sin(Qh[2]) + 2*a[1]*a[2]*cos(Qh[2]))  ########
+            Qh[1]=2*atan2(d[3]*cos(Qh[2]) - a[2]*sin(Qh[2]) - ARM2*(hh2 - fh**2)**0.5 , fh + d[3]*sin(Qh[2]) + a[2]*cos(Qh[2]) +a[1])
+            ###Now finding the solutions of the next three angles :
+            Qh[3] = atan2(WRI*(cos(Qh[0])*ay - sin(Qh[0])*ax) , WRI*(cos(Qh[0])*cos(Qh[1]+Qh[2])*ax + sin(Qh[0])*cos(Qh[1]+Qh[2])*ay - sin(Qh[1]+Qc[2])*az))
+            Qh[4] = atan2((cos(Qh[0])*cos(Qh[1]+Qh[2])*cos(Qh[3]) - sin(Qh[0])*sin(Qh[3]))*ax + (sin(Qh[0])*cos(Qh[1]+Qh[2])*cos(Qh[3]) + cos(Qh[0])*sin(Qh[3]))*ay - cos(Qh[3])*sin(Qh[1]+Qh[2])*az , cos(Qh[0])*sin(Qh[1]+Qh[2])*ax + sin(Qh[0])*sin(Qh[1]+Qh[2])*ay + cos(Qh[1]+Qh[2])*az)
+            Qh[5] = atan2((-sin(Qh[0])*cos(Qh[3]) - cos(Qh[0])*cos(Qh[1]+Qh[2])*sin(Qh[3]))*nx + (cos(Qh[0])*cos(Qh[3]) - sin(Qh[0])*cos(Qh[1]+Qh[2])*sin(Qh[3]))*ny + sin(Qh[1]+Qh[2])*sin(Qh[3])*nz, (-sin(Qh[0])*cos(Qh[3]) - cos(Qh[0])*cos(Qh[1]+Qh[2])*sin(Qh[3]))*sx + (cos(Qh[0])*cos(Qh[3]) - sin(Qh[0])*cos(Qh[1]+Qh[2])*sin(Qh[3]))*sy + sin(Qh[1]+Qh[2])*sin(Qh[3])*sz)
+            time.sleep(1);
+            for i in range(0,6):
+              Qh[i]=atan2(sin(Qh[i]),cos(Qh[i]));
+            print "Now Showing Half Angle Solutions (Range : -pi to +pi)"
+            print [Qh[0],Qh[1],Qh[2],Qh[3],Qh[4],Qh[5]]
+            E=Qh-Qr;
+            print "Error = "+repr((sum(E*E))**0.5)
+            env.GetViewer().SetTitle('Inverse Kinematics Configuration : Half Angle Solution (FLIP 1)')
+            from openravepy import misc
+            robot.SetDOFValues([Qh[0],Qh[1],Qh[2],Qh[3],Qh[4],Qg[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            time.sleep(1);
+            Qh[3]=atan2(sin(Qh[3]+np.pi),cos(Qh[3]+np.pi));
+            Qh[4]=atan2(sin(-Qh[4]),cos(-Qh[4]))
+            Qh[5]=atan2(sin(Qh[5]+np.pi),cos(Qh[5]+np.pi));
+            print [Qh[0],Qh[1],Qh[2],Qh[3],Qh[4],Qh[5]]
+            E=Qh-Qr;
+            print "Error = "+repr((sum(E*E))**0.5)
+            env.GetViewer().SetTitle('Inverse Kinematics Configuration : Half Angle Solution (FLIP 2)')
+            from openravepy import misc
+            robot.SetDOFValues([Qh[0],Qh[1],Qh[2],Qh[3],Qh[4],Qh[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            time.sleep(1)
+            ##### Geometric Solutions
+            Px=px - d[5]*ax ; Py=py - d[5]*ay ; Pz=pz - d[5]*az ;
+            Tg4=As[0]*As[1]*As[2]*As[3];
+            rg = (Px**2 + Py**2 - d[1]**2)**0.5 ; R1 = (Px**2 + Py**2)**0.5
+            Qg[0]=atan2(-ARM*Py*rg - Px*d[1] , -ARM*Px*rg + Py*d[1])
+            R2=(Px**2 + Py**2 + Pz**2 - d[1]**2)**0.5
+            sina = -Pz/R2 ; cosa = -ARM*rg/R2 ; cosb=(a[1]**2 + R2**2 - d[3]**2 - a[2]**2)/(2*a[1]*R2) ; sinb = (1-cosb**2)**0.5
+            Qg[1]=atan2(sina*cosb + ARM*ELB*cosa*sinb , cosa*cosb - ARM*ELB*sina*sinb)
+            cosphi = (a[1]**2 + d[3]**2 + a[2]**2 - R2**2)/(2*a[1]*(d[3]**2 + a[2]**2)**0.5)
+            sinphi = ARM*ELB*(1 - cosphi**2)**0.5
+            sinbeta = d[3]/((d[3]**2 + a[2]**2)**0.5)
+            cosbeta = abs(a[2])/((d[3]**2 + a[2]**2)**0.5)
+            Qg[2] = atan2(sinphi*cosbeta - cosphi*sinbeta, cosphi*cosbeta + sinphi*sinbeta)
+            # Now finding the solutions for the next 3 angles :
+            # now to define the OHM indicator :
+            T5=1;
+            for i in range(0,5):
+              T5=np.dot(T5,As[i]);
+            if np.dot(T[:,1],T5[:,2]) != 0:
+              OHM=np.sign(np.dot(T[:,1],T5[:,1]))
+            else:
+              OHM=np.sign(np.dot(T[:,0],T5[:,1]))
+            M=WRI*OHM;
+            Qg[3] = atan2(M*(cos(Qg[0])*ay - sin(Qg[0])*ax) , M*(cos(Qg[0])*cos(Qg[1]+Qg[2])*ax + sin(Qg[0])*cos(Qg[1]+Qg[2])*ay - sin(Qg[1]+Qg[2])*az))
+            Qg[4] = atan2((cos(Qg[0])*cos(Qg[1]+Qg[2])*cos(Qg[3]) - sin(Qg[0])*sin(Qg[3]))*ax + (sin(Qg[0])*cos(Qg[1]+Qg[2])*cos(Qg[3]) + cos(Qg[0])*sin(Qg[3]))*ay - cos(Qg[3])*sin(Qg[1]+Qg[2])*az , cos(Qg[0])*sin(Qg[1]+Qg[2])*ax + sin(Qg[0])*sin(Qg[1]+Qg[2])*ay + cos(Qg[1]+Qg[2])*az)
+            Qg[5] = atan2((-sin(Qg[0])*cos(Qg[3]) - cos(Qg[0])*cos(Qg[1]+Qg[2])*sin(Qg[3]))*nx + (cos(Qg[0])*cos(Qg[3]) - sin(Qg[0])*cos(Qg[1]+Qg[2])*sin(Qg[3]))*ny + sin(Qg[1]+Qg[2])*sin(Qg[3])*nz, (-sin(Qg[0])*cos(Qg[3]) - cos(Qg[0])*cos(Qg[1]+Qg[2])*sin(Qg[3]))*sx + (cos(Qg[0])*cos(Qg[3]) - sin(Qg[0])*cos(Qg[1]+Qg[2])*sin(Qg[3]))*sy + sin(Qg[1]+Qg[2])*sin(Qg[3])*sz)
+            time.sleep(1);
+            print "Now Showing Geometric Solutions: (Range : -pi to +pi)"
+            print [Qg[0],Qg[1],Qg[2],Qg[3],Qg[4],Qg[5]]
+            E=Qg-Qr;
+            print "Error = "+repr((sum(E*E))**0.5)
+            env.GetViewer().SetTitle('Inverse Kinematics Configuration : Geometric Solution (FLIP 1)')
+            from openravepy import misc
+            robot.SetDOFValues([Qg[0],Qg[1],Qg[2],Qg[3],Qg[4],Qg[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            time.sleep(1)
+            Qg[3]=atan2(sin(Qg[3]+np.pi),cos(Qg[3]+np.pi));
+            Qg[4]=atan2(sin(-Qg[4]),cos(-Qg[4]))
+            Qg[5]=atan2(sin(Qg[5]+np.pi),cos(Qg[5]+np.pi));
+            print [Qg[0],Qg[1],Qg[2],Qg[3],Qg[4],Qg[5]]
+            E=Qg-Qr;
+            print "Error = "+repr((sum(E*E))**0.5)
+            env.GetViewer().SetTitle('Inverse Kinematics Configuration : Geometric Solution (FLIP 2)')
+            from openravepy import misc
+            robot.SetDOFValues([Qg[0],Qg[1],Qg[2],Qg[3],Qg[4],Qg[5]])
+            OT0=(robot.GetLinks()[0]).GetTransform();
+            OT1=(robot.GetLinks()[1]).GetTransform();
+            OT2=(robot.GetLinks()[2]).GetTransform();
+            OT3=(robot.GetLinks()[3]).GetTransform();
+            OT4=(robot.GetLinks()[4]).GetTransform();
+            OT5=(robot.GetLinks()[5]).GetTransform();
+            handles=[];
+            handles.append(misc.DrawAxes(env,OT0,0.3,3))
+            handles.append(misc.DrawAxes(env,OT1,0.3,3))
+            handles.append(misc.DrawAxes(env,OT2,0.3,3))
+            handles.append(misc.DrawAxes(env,OT3,0.3,3))
+            handles.append(misc.DrawAxes(env,OT4,0.3,3))
+            handles.append(misc.DrawAxes(env,OT5,0.3,3))
+            time.sleep(1);                    
+            time.sleep(1);
+            print ""
+            print ""
+            time.sleep(1);
+            Q[5]=Q[5]+3;
+          Q[4]=Q[4]+2;
+        Q[3]=Q[3]+2;
+      Q[2]=Q[2]+1;
+    Q[1]=Q[1]+1;
+  Q[0]=Q[0]+2;
+env.Destroy();
+
+                        
+             
+ 
+        
+
+         
+
